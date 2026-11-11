@@ -140,7 +140,7 @@
     const max = o.max || Math.max.apply(null, points.map(x => x.v).concat([1])), min = o.min || 0, step = points.length > 1 ? (W - 2 * p) / (points.length - 1) : 0;
     const xy = points.map((q, i) => [p + i * step, H - p - (q.v - min) / (max - min || 1) * (H - 2 * p)]);
     return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto" role="img" aria-label="Grafik tren"><polyline fill="none" stroke="' + (o.c || '#2457E6') + '" stroke-width="3" stroke-linejoin="round" points="' + xy.map(a => a.join(',')).join(' ') + '"></polyline>' +
-      xy.map((a, i) => '<circle cx="' + a[0] + '" cy="' + a[1] + '" r="4.5" fill="#fff" stroke="' + (o.c || '#2457E6') + '" stroke-width="2.5"></circle><text x="' + a[0] + '" y="' + (a[1] - 10) + '" font-size="11" font-weight="700" text-anchor="middle" fill="#1B2540">' + num(points[i].v) + '</text><text x="' + a[0] + '" y="' + (H - 8) + '" font-size="10.5" text-anchor="middle" fill="#5B6B88">' + esc(points[i].l) + '</text>').join('') + '</svg>';
+      xy.map((a, i) => '<circle cx="' + a[0] + '" cy="' + a[1] + '" r="4.5" fill="#fff" stroke="' + (o.c || '#2457E6') + '" stroke-width="2.5"></circle><text x="' + a[0] + '" y="' + (a[1] - 10) + '" font-size="11" font-weight="700" text-anchor="middle" fill="#1B2540">' + num(points[i].v, o.d) + '</text><text x="' + a[0] + '" y="' + (H - 8) + '" font-size="10.5" text-anchor="middle" fill="#5B6B88">' + esc(points[i].l) + '</text>').join('') + '</svg>';
   }
   /* ---- berkas ---- */
   const b64 = (file) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(file); });
