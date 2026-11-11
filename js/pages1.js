@@ -76,7 +76,13 @@
     };
     const jadikanMasalah = (r) => UI.form({ title: 'Jadikan masalah prioritas', fields: [{ k: 'masalah', l: 'Rumusan masalah', t: 'text', req: 1, full: 1 }, { k: 'akar_masalah', l: 'Akar masalah (satu per baris)', t: 'area', full: 1, rows: 4 }], vals: { masalah: r.indikator + ' (skor ' + num(r.skor) + ')' },
       onSubmit: async (v) => { const x = await Store.save('Masalah_Prioritas', { indikator_id: r.id, masalah: v.masalah, akar_masalah: v.akar_masalah, status: 'baru' }); if (x.success) { toast('Masuk daftar masalah prioritas.', 'ok'); X.go('keputusan'); } return x; } });
-    const detail = (id) => { const r = Store.byId('Rapor_Indikator', id); if (!r) return; const hist = rows().filter(x => x.kode === r.kode).sort((a, b) => a.tahun - b.tahun);
+    /* Kunci pencocokan indikator antar tahun: kode + teks indikator (huruf kecil, spasi dirapikan). Kode saja tidak unik. */
+    const nrm = t => String(t == null ? '' : t).toLowerCase().replace(/\s+/g, ' ').trim();
+    const kunci = r => nrm(r.kode) + '|' + nrm(r.indikator);
+    const samaIndikator = (a, b) => kunci(a) === kunci(b);
+    /* Baris tahun terdekat sebelum tahun r untuk indikator yang sama (null bila tidak ada). */
+    const sebelumnya = (r) => { const c = rows().filter(x => samaIndikator(x, r) && +x.tahun < +r.tahun).sort((x, y) => y.tahun - x.tahun); return c[0] || null; };
+    const detail = (id) => { const r = Store.byId('Rapor_Indikator', id); if (!r) return; const hist = rows().filter(x => samaIndikator(x, r)).sort((a, b) => a.tahun - b.tahun);
       const m = UI.modal({ title: r.kode + ' — ' + r.indikator, size: 'lg', footer: '<button class="btn" data-c>Tutup</button>', body: '<div class="row wrap" style="margin-bottom:12px">' + pillKat(kat(+r.skor)) + '<span class="pill">' + esc(r.standar_atau_aspek || 'Tanpa standar') + '</span><b>Skor ' + num(r.skor) + ' (' + r.tahun + ')</b></div>' + (hist.length > 1 ? '<h4>Tren skor per tahun</h4>' + UI.line(hist.map(h => ({ l: String(h.tahun), v: +h.skor })), { max: 100 }) : '<div class="muted sm">Belum ada data tahun lain untuk indikator ini.</div>') + (r.catatan ? '<h4 style="margin-top:14px">Catatan</h4><p>' + esc(r.catatan) + '</p>' : '') });
       m.$('[data-c]').onclick = m.close; };
     const analisis = (el) => {
@@ -85,10 +91,9 @@
       const per = {}; rs.forEach(r => { const k = r.standar_atau_aspek || 'Tanpa standar'; (per[k] = per[k] || []).push(+r.skor); });
       const avg = a => a.reduce((s, x) => s + x, 0) / a.length;
       const tren = ty.slice().reverse().map(t => { const a = rows().filter(r => +r.tahun === t).map(r => +r.skor); return { l: String(t), v: avg(a) }; });
-      const dev = {}; if (ty.length > 1) { const prev = rows().filter(r => +r.tahun === ty[1]); prev.forEach(r => dev[r.kode] = +r.skor); }
-      el.innerHTML = '<div class="grid g2"><div class="card"><h3>Rata-rata per standar (' + cur + ')</h3>' + UI.hbars(Object.keys(per).map(k => ({ l: k, v: avg(per[k]), t: num(avg(per[k])), k: kat(avg(per[k])) })), 100) + '</div><div class="card"><h3>Tren rata-rata skor</h3>' + (tren.length > 1 ? UI.line(tren, { max: 100 }) : '<div class="muted sm">Dibutuhkan data minimal 2 tahun untuk melihat tren.</div>') + '</div></div>' +
+            el.innerHTML = '<div class="grid g2"><div class="card"><h3>Rata-rata per standar (' + cur + ')</h3>' + UI.hbars(Object.keys(per).map(k => ({ l: k, v: avg(per[k]), t: num(avg(per[k])), k: kat(avg(per[k])) })), 100) + '</div><div class="card"><h3>Tren rata-rata skor</h3>' + (tren.length > 1 ? UI.line(tren, { max: 100 }) : '<div class="muted sm">Dibutuhkan data minimal 2 tahun untuk melihat tren.</div>') + '</div></div>' +
         '<div class="card" style="margin-top:16px"><h3>Perubahan terhadap tahun sebelumnya</h3><div class="tw"><table class="tbl rsp"><thead><tr><th>Kode</th><th>Indikator</th><th>Skor ' + cur + '</th><th>Sebelumnya</th><th>Selisih</th></tr></thead><tbody>' +
-        rs.slice().sort((a, b) => a.skor - b.skor).map(r => { const p = dev[r.kode], d = p != null ? +r.skor - p : null; return '<tr><td data-l="Kode">' + esc(r.kode) + '</td><td data-l="Indikator">' + esc(r.indikator) + '</td><td data-l="Skor">' + num(r.skor) + '</td><td data-l="Sebelumnya">' + (p != null ? num(p) : '—') + '</td><td data-l="Selisih">' + (d == null ? '—' : '<span class="pill ' + (d > 0 ? 'hijau' : d < 0 ? 'merah' : '') + '">' + (d > 0 ? '▲ +' : d < 0 ? '▼ ' : '') + num(d) + '</span>') + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
+        rs.slice().sort((a, b) => a.skor - b.skor).map(r => { const pb = sebelumnya(r), p = pb ? +pb.skor : null, d = p != null ? +r.skor - p : null; return '<tr><td data-l="Kode">' + esc(r.kode) + '</td><td data-l="Indikator">' + esc(r.indikator) + '</td><td data-l="Skor">' + num(r.skor) + '</td><td data-l="Sebelumnya">' + (p != null ? num(p) : '—') + '</td><td data-l="Selisih">' + (d == null ? '—' : '<span class="pill ' + (d > 0 ? 'hijau' : d < 0 ? 'merah' : '') + '">' + (d > 0 ? '▲ +' : d < 0 ? '▼ ' : '') + num(d) + '</span>') + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
     };
     const impor = (el) => {
       if (!can('Rapor_Indikator', 'T')) { el.innerHTML = '<div class="card">' + UI.emptyBox('lock', 'Tidak ada akses impor', 'Hubungi Kepala Sekolah atau Admin.') + '</div>'; return; }
