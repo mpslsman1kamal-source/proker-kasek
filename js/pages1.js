@@ -1,6 +1,8 @@
 /* SIPERENCANA — pages1.js: Dashboard, Rapor Pendidikan, Pengambilan Keputusan. */
 (function () {
-  const { esc, $, $$, ic, tgl, num, rp, rpS, kat, pillKat, toast, DataTable } = UI, P = window.PAGES;
+  const { esc, $, $$, ic, tgl, rp, rpS, kat, pillKat, toast, DataTable } = UI, P = window.PAGES;
+  /* Skor Rapor tampil hingga 2 angka desimal sesuai yang diinput (mis. 95,56). */
+  const num = (n, d) => UI.num(n, d == null ? 2 : d);
   const can = (t, h) => Store.can(t, h);
   const standar = () => { try { return JSON.parse(Store.set.MASTER_STANDAR || '[]').filter(s => s.aktif !== false); } catch (e) { return []; } };
   const tabs = (v, list, def, draw) => {
@@ -53,6 +55,26 @@
       { k: 'indikator', l: 'Nama indikator', t: 'text', req: 1, full: 1 }, { k: 'catatan', l: 'Catatan', t: 'area', full: 1 }],
       onSubmit: async (v) => { const r = await Store.save('Rapor_Indikator', Object.assign({}, row || {}, v)); if (r.success) { toast('Indikator tersimpan.', 'ok'); after && after(r.data.row); } return r; } });
   }
+  /* Format "LAPORAN RAPOR" (sheet bawaan Rapor Pendidikan): No, Indikator, Capaian, Skor Rapor <tahun>, Definisi Capaian, ..., Skor Rapor <tahun-1>.
+     Satu berkas mengisi dua tahun sekaligus, sehingga kolom Selisih di Analisis terisi otomatis. No yang kosong (sel digabung) mewarisi No di atasnya. */
+  const angkaSkor = (v) => { let s = String(v == null ? '' : v).replace(/%/g, '').replace(/\s+/g, '').trim(); if (!s || /^[-–—]+$/.test(s)) return null; s = s.replace(',', '.'); const n = Number(s); return isNaN(n) ? null : n; };
+  const rapi = (v) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+  const bacaLaporan = (tbl) => {
+    let h = -1;
+    for (let i = 0; i < Math.min(tbl.length, 30); i++) { const t = tbl[i].map(x => String(x).toLowerCase()); if (t.some(x => /^\s*indikator/.test(x)) && t.some(x => /skor\s*rapor\s*\d{4}/.test(x))) { h = i; break; } }
+    if (h < 0) return null;
+    const hd = tbl[h].map(x => rapi(x).toLowerCase()), cari = f => hd.findIndex(f);
+    const cIk = cari(x => x.indexOf('indikator') === 0), cNo = cari(x => x === 'no' || x === 'no.' || x === 'kode'), cCap = cari(x => x === 'capaian'), cDef = cari(x => x.indexOf('definisi') === 0), cStd = cari(x => x.indexOf('standar') === 0);
+    const th = []; hd.forEach((x, i) => { const m = /skor rapor (\d{4})/.exec(x); if (m) th.push({ tahun: +m[1], c: i }); });
+    const terbaru = Math.max.apply(null, th.map(t => t.tahun)), data = []; let kode = '';
+    for (let i = h + 1; i < tbl.length; i++) {
+      const r = tbl[i], no = cNo >= 0 ? rapi(r[cNo]) : ''; if (no) kode = no;
+      const ik = rapi(r[cIk]); if (!ik) continue;
+      const cat = [cCap >= 0 ? rapi(r[cCap]) : '', cDef >= 0 ? rapi(r[cDef]) : ''].filter(Boolean).join(' — ');
+      th.forEach(t => { const v = angkaSkor(r[t.c]); if (v == null) return; data.push({ tahun: t.tahun, standar_atau_aspek: cStd >= 0 ? rapi(r[cStd]) : '', kode, indikator: ik, skor: v, catatan: t.tahun === terbaru ? cat : '', _baris: i + 1 }); });
+    }
+    return { data, tahun: th.map(t => t.tahun).sort((a, b) => b - a) };
+  };
   P.rapor = { t: 'Rapor Pendidikan', ic: 'analytics', c: '#2457E6', ct: '#EAF0FF', tables: ['Rapor_Indikator', 'Masalah_Prioritas'], need: () => can('Rapor_Indikator', 'L'), render(v, parts, X) {
     const mulai = parts[0] || 'daftar';
     v.innerHTML = head('Rapor Pendidikan', 'Data mutu pembelajaran sebagai dasar perencanaan. Warna kategori mengikuti ambang di Pengaturan.', (can('Rapor_Indikator', 'T') ? '<button class="btn" id="bi">' + ic('upload_file') + 'Impor data</button><button class="btn p" id="ba">' + ic('add') + 'Tambah indikator</button>' : '')) + '<div id="body"></div>';
@@ -76,8 +98,14 @@
     };
     const jadikanMasalah = (r) => UI.form({ title: 'Jadikan masalah prioritas', fields: [{ k: 'masalah', l: 'Rumusan masalah', t: 'text', req: 1, full: 1 }, { k: 'akar_masalah', l: 'Akar masalah (satu per baris)', t: 'area', full: 1, rows: 4 }], vals: { masalah: r.indikator + ' (skor ' + num(r.skor) + ')' },
       onSubmit: async (v) => { const x = await Store.save('Masalah_Prioritas', { indikator_id: r.id, masalah: v.masalah, akar_masalah: v.akar_masalah, status: 'baru' }); if (x.success) { toast('Masuk daftar masalah prioritas.', 'ok'); X.go('keputusan'); } return x; } });
-    const detail = (id) => { const r = Store.byId('Rapor_Indikator', id); if (!r) return; const hist = rows().filter(x => x.kode === r.kode).sort((a, b) => a.tahun - b.tahun);
-      const m = UI.modal({ title: r.kode + ' — ' + r.indikator, size: 'lg', footer: '<button class="btn" data-c>Tutup</button>', body: '<div class="row wrap" style="margin-bottom:12px">' + pillKat(kat(+r.skor)) + '<span class="pill">' + esc(r.standar_atau_aspek || 'Tanpa standar') + '</span><b>Skor ' + num(r.skor) + ' (' + r.tahun + ')</b></div>' + (hist.length > 1 ? '<h4>Tren skor per tahun</h4>' + UI.line(hist.map(h => ({ l: String(h.tahun), v: +h.skor })), { max: 100 }) : '<div class="muted sm">Belum ada data tahun lain untuk indikator ini.</div>') + (r.catatan ? '<h4 style="margin-top:14px">Catatan</h4><p>' + esc(r.catatan) + '</p>' : '') });
+    /* Kunci pencocokan indikator antar tahun: kode + teks indikator (huruf kecil, spasi dirapikan). Kode saja tidak unik. */
+    const nrm = t => String(t == null ? '' : t).toLowerCase().replace(/\s+/g, ' ').trim();
+    const kunci = r => nrm(r.kode) + '|' + nrm(r.indikator);
+    const samaIndikator = (a, b) => kunci(a) === kunci(b);
+    /* Baris tahun terdekat sebelum tahun r untuk indikator yang sama (null bila tidak ada). */
+    const sebelumnya = (r) => { const c = rows().filter(x => samaIndikator(x, r) && +x.tahun < +r.tahun).sort((x, y) => y.tahun - x.tahun); return c[0] || null; };
+    const detail = (id) => { const r = Store.byId('Rapor_Indikator', id); if (!r) return; const hist = rows().filter(x => samaIndikator(x, r)).sort((a, b) => a.tahun - b.tahun);
+      const m = UI.modal({ title: r.kode + ' — ' + r.indikator, size: 'lg', footer: '<button class="btn" data-c>Tutup</button>', body: '<div class="row wrap" style="margin-bottom:12px">' + pillKat(kat(+r.skor)) + '<span class="pill">' + esc(r.standar_atau_aspek || 'Tanpa standar') + '</span><b>Skor ' + num(r.skor) + ' (' + r.tahun + ')</b></div>' + (hist.length > 1 ? '<h4>Tren skor per tahun</h4>' + UI.line(hist.map(h => ({ l: String(h.tahun), v: +h.skor })), { max: 100, d: 2 }) : '<div class="muted sm">Belum ada data tahun lain untuk indikator ini.</div>') + (r.catatan ? '<h4 style="margin-top:14px">Catatan</h4><p>' + esc(r.catatan) + '</p>' : '') });
       m.$('[data-c]').onclick = m.close; };
     const analisis = (el) => {
       const ty = tahunList(), cur = thn || ty[0], rs = rows().filter(r => +r.tahun === cur);
@@ -85,32 +113,35 @@
       const per = {}; rs.forEach(r => { const k = r.standar_atau_aspek || 'Tanpa standar'; (per[k] = per[k] || []).push(+r.skor); });
       const avg = a => a.reduce((s, x) => s + x, 0) / a.length;
       const tren = ty.slice().reverse().map(t => { const a = rows().filter(r => +r.tahun === t).map(r => +r.skor); return { l: String(t), v: avg(a) }; });
-      const dev = {}; if (ty.length > 1) { const prev = rows().filter(r => +r.tahun === ty[1]); prev.forEach(r => dev[r.kode] = +r.skor); }
-      el.innerHTML = '<div class="grid g2"><div class="card"><h3>Rata-rata per standar (' + cur + ')</h3>' + UI.hbars(Object.keys(per).map(k => ({ l: k, v: avg(per[k]), t: num(avg(per[k])), k: kat(avg(per[k])) })), 100) + '</div><div class="card"><h3>Tren rata-rata skor</h3>' + (tren.length > 1 ? UI.line(tren, { max: 100 }) : '<div class="muted sm">Dibutuhkan data minimal 2 tahun untuk melihat tren.</div>') + '</div></div>' +
+            el.innerHTML = '<div class="grid g2"><div class="card"><h3>Rata-rata per standar (' + cur + ')</h3>' + UI.hbars(Object.keys(per).map(k => ({ l: k, v: avg(per[k]), t: num(avg(per[k])), k: kat(avg(per[k])) })), 100) + '</div><div class="card"><h3>Tren rata-rata skor</h3>' + (tren.length > 1 ? UI.line(tren, { max: 100, d: 2 }) : '<div class="muted sm">Dibutuhkan data minimal 2 tahun untuk melihat tren.</div>') + '</div></div>' +
         '<div class="card" style="margin-top:16px"><h3>Perubahan terhadap tahun sebelumnya</h3><div class="tw"><table class="tbl rsp"><thead><tr><th>Kode</th><th>Indikator</th><th>Skor ' + cur + '</th><th>Sebelumnya</th><th>Selisih</th></tr></thead><tbody>' +
-        rs.slice().sort((a, b) => a.skor - b.skor).map(r => { const p = dev[r.kode], d = p != null ? +r.skor - p : null; return '<tr><td data-l="Kode">' + esc(r.kode) + '</td><td data-l="Indikator">' + esc(r.indikator) + '</td><td data-l="Skor">' + num(r.skor) + '</td><td data-l="Sebelumnya">' + (p != null ? num(p) : '—') + '</td><td data-l="Selisih">' + (d == null ? '—' : '<span class="pill ' + (d > 0 ? 'hijau' : d < 0 ? 'merah' : '') + '">' + (d > 0 ? '▲ +' : d < 0 ? '▼ ' : '') + num(d) + '</span>') + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
+        rs.slice().sort((a, b) => a.skor - b.skor).map(r => { const pb = sebelumnya(r), p = pb ? +pb.skor : null, d = p != null ? +r.skor - p : null; return '<tr><td data-l="Kode">' + esc(r.kode) + '</td><td data-l="Indikator">' + esc(r.indikator) + '</td><td data-l="Skor">' + num(r.skor) + '</td><td data-l="Sebelumnya">' + (p != null ? num(p) : '—') + '</td><td data-l="Selisih">' + (d == null ? '—' : '<span class="pill ' + (d > 0 ? 'hijau' : d < 0 ? 'merah' : '') + '">' + (d > 0 ? '▲ +' : d < 0 ? '▼ ' : '') + num(d) + '</span>') + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
     };
     const impor = (el) => {
       if (!can('Rapor_Indikator', 'T')) { el.innerHTML = '<div class="card">' + UI.emptyBox('lock', 'Tidak ada akses impor', 'Hubungi Kepala Sekolah atau Admin.') + '</div>'; return; }
-      el.innerHTML = '<div class="card"><h3>Impor data Rapor Pendidikan</h3><ol class="muted sm" style="padding-left:18px;margin:0 0 14px"><li>Unduh templat, isi, simpan sebagai CSV atau Excel.</li><li>Unggah berkas — kolom dikenali otomatis dari judul kolom.</li><li>Periksa pratinjau &amp; galat, lalu impor. Impor ulang aman (data yang sama diperbarui, bukan digandakan).</li></ol><div class="row wrap"><button class="btn" id="tpl">' + ic('download') + 'Unduh templat CSV</button></div><label class="drop" id="dz" style="display:block;margin-top:14px" for="fi">' + ic('upload_file') + '<div><b>Klik atau seret berkas CSV / XLSX ke sini</b></div><div class="xs">Maksimal 2000 baris</div></label><input type="file" id="fi" accept=".csv,.xlsx,.xls" class="sr"><div id="pv" style="margin-top:16px"></div></div>';
+      el.innerHTML = '<div class="card"><h3>Impor data Rapor Pendidikan</h3><ol class="muted sm" style="padding-left:18px;margin:0 0 14px"><li>Unduh templat Excel, isi (atau salin kolom dari sheet <b>LAPORAN RAPOR</b>), lalu simpan.</li><li>Unggah berkas — kolom dikenali otomatis dari judul kolom.</li><li>Periksa pratinjau &amp; galat, lalu impor. Impor ulang aman (data yang sama diperbarui, bukan digandakan).</li></ol><div class="row wrap"><a class="btn p" id="tplx" href="assets/templat-rapor-pendidikan.xlsx" download>' + ic('download') + 'Unduh templat Excel (.xlsx)</a><button class="btn" id="tpl">' + ic('download') + 'Templat CSV</button></div><label class="drop" id="dz" style="display:block;margin-top:14px" for="fi">' + ic('upload_file') + '<div><b>Klik atau seret berkas CSV / XLSX ke sini</b></div><div class="xs">Maksimal 2000 baris</div></label><input type="file" id="fi" accept=".csv,.xlsx,.xls" class="sr"><div id="pv" style="margin-top:16px"></div></div>';
       $('#tpl', el).onclick = () => { const c = 'tahun,standar_atau_aspek,kode,indikator,skor,catatan\n2025,Standar Proses,C.1,Kualitas pembelajaran,68,\n'; UI.saveBlob('templat-rapor-pendidikan.csv', 'text/csv', btoa(unescape(encodeURIComponent(c)))); };
       const proses = async (file) => {
         const pv = $('#pv', el); pv.innerHTML = '<div class="sk" style="height:80px"></div>'; let tbl;
         try {
-          if (/\.xlsx?$/i.test(file.name)) { if (!window.XLSX) await new Promise((ok, bad) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; s.onload = ok; s.onerror = bad; document.head.appendChild(s); }); const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' }); tbl = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' }); }
+          if (/\.xlsx?$/i.test(file.name)) { if (!window.XLSX) await new Promise((ok, bad) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; s.onload = ok; s.onerror = bad; document.head.appendChild(s); }); const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' }); const nm = wb.SheetNames.find(n => /laporan\s*rapor/i.test(n)) || wb.SheetNames.find(n => /rapor/i.test(n)) || wb.SheetNames[0]; tbl = XLSX.utils.sheet_to_json(wb.Sheets[nm], { header: 1, defval: '', raw: false }); }
           else tbl = csvParse(await file.text());
         } catch (e) { pv.innerHTML = '<div class="alert bad">' + ic('error') + '<span>Berkas tidak dapat dibaca. Pastikan formatnya CSV atau Excel.</span></div>'; return; }
         if (tbl.length < 2) { pv.innerHTML = '<div class="alert bad">' + ic('error') + '<span>Berkas kosong atau tidak memiliki baris data.</span></div>'; return; }
+        const lap = bacaLaporan(tbl); let data;
+        if (lap) { data = lap.data; if (!data.length) { pv.innerHTML = '<div class="alert bad">' + ic('error') + '<span>Format Laporan Rapor terbaca, tetapi tidak ada baris yang berisi skor.</span></div>'; return; } }
+        else {
         const hd = tbl[0].map(x => String(x).trim().toLowerCase()), idx = (...n) => hd.findIndex(h => n.some(x => h === x || h.indexOf(x) > -1));
         const C = { tahun: idx('tahun'), standar_atau_aspek: idx('standar', 'aspek'), kode: idx('kode'), indikator: idx('indikator', 'nama'), skor: idx('skor', 'nilai'), catatan: idx('catatan', 'ket') };
         const miss = ['tahun', 'kode', 'indikator', 'skor'].filter(k => C[k] < 0);
         if (miss.length) { pv.innerHTML = '<div class="alert bad">' + ic('error') + '<span>Kolom wajib tidak ditemukan: <b>' + miss.join(', ') + '</b>. Gunakan templat.</span></div>'; return; }
-        const data = tbl.slice(1).map(r => { const o = {}; Object.keys(C).forEach(k => { o[k] = C[k] >= 0 ? r[C[k]] : ''; }); return o; }).filter(o => o.kode || o.indikator);
+        data = tbl.slice(1).map(r => { const o = {}; Object.keys(C).forEach(k => { o[k] = C[k] >= 0 ? r[C[k]] : ''; }); return o; }).filter(o => o.kode || o.indikator);
+        }
         const dr = await API.write('impor.rapor', { rows: data, dryRun: true });
         if (!dr.success) { pv.innerHTML = '<div class="alert bad">' + ic('error') + '<span>' + esc(dr.message) + '</span></div>'; return; }
         const d = dr.data;
-        pv.innerHTML = '<div class="grid g4 keep2"><div class="card flat"><div class="kpi"><div><div class="v">' + data.length + '</div><div class="l">Baris terbaca</div></div></div></div><div class="card flat"><div class="v xb" style="font-size:26px;color:var(--green)">' + d.tambah + '</div><div class="l muted sm">Akan ditambah</div></div><div class="card flat"><div class="v xb" style="font-size:26px;color:var(--cobalt)">' + d.ubah + '</div><div class="l muted sm">Akan diperbarui</div></div><div class="card flat"><div class="v xb" style="font-size:26px;color:' + (d.jumlah_galat ? 'var(--bad)' : 'var(--muted)') + '">' + d.jumlah_galat + '</div><div class="l muted sm">Baris bermasalah</div></div></div>' +
-          (d.galat.length ? '<div class="alert warn" style="margin-top:12px">' + ic('warning') + '<div><b>Baris bermasalah (dilewati bila Anda lanjut):</b><ul style="margin:6px 0 0;padding-left:18px">' + d.galat.slice(0, 8).map(g => '<li>Baris ' + g.baris + ': ' + esc(g.pesan) + '</li>').join('') + (d.galat.length > 8 ? '<li>…dan ' + (d.galat.length - 8) + ' lainnya</li>' : '') + '</ul></div></div>' : '') +
+        pv.innerHTML = (lap ? '<div class="alert ok" style="margin-bottom:12px">' + ic('check_circle') + '<span>Format <b>Laporan Rapor</b> terdeteksi. Tahun terbaca: <b>' + lap.tahun.join(', ') + '</b>.</span></div>' : '') + '<div class="grid g4 keep2"><div class="card flat"><div class="kpi"><div><div class="v">' + data.length + '</div><div class="l">Baris terbaca</div></div></div></div><div class="card flat"><div class="v xb" style="font-size:26px;color:var(--green)">' + d.tambah + '</div><div class="l muted sm">Akan ditambah</div></div><div class="card flat"><div class="v xb" style="font-size:26px;color:var(--cobalt)">' + d.ubah + '</div><div class="l muted sm">Akan diperbarui</div></div><div class="card flat"><div class="v xb" style="font-size:26px;color:' + (d.jumlah_galat ? 'var(--bad)' : 'var(--muted)') + '">' + d.jumlah_galat + '</div><div class="l muted sm">Baris bermasalah</div></div></div>' +
+          (d.galat.length ? '<div class="alert warn" style="margin-top:12px">' + ic('warning') + '<div><b>Baris bermasalah (dilewati bila Anda lanjut):</b><ul style="margin:6px 0 0;padding-left:18px">' + d.galat.slice(0, 8).map(g => '<li>Baris ' + ((data[g.baris - 2] && data[g.baris - 2]._baris) || g.baris) + ': ' + esc(g.pesan) + '</li>').join('') + (d.galat.length > 8 ? '<li>…dan ' + (d.galat.length - 8) + ' lainnya</li>' : '') + '</ul></div></div>' : '') +
           '<div class="row" style="margin-top:14px;justify-content:flex-end"><button class="btn p" id="go" ' + (d.tambah + d.ubah ? '' : 'disabled') + '>' + ic('check') + 'Impor ' + (d.tambah + d.ubah) + ' baris</button></div>';
         $('#go', el).onclick = async (e) => { const b = e.currentTarget; b.classList.add('load'); const r = await API.write('impor.rapor', { rows: data, abaikanGalat: true }); b.classList.remove('load'); if (!r.success) { toast(r.message, 'bad'); return; } toast('Impor selesai: ' + r.data.tambah + ' baru, ' + r.data.ubah + ' diperbarui.', 'ok'); Store.load('Rapor_Indikator', true); Store.refreshDash(); pv.innerHTML = '<div class="alert ok">' + ic('check_circle') + '<span>Impor selesai. Buka tab Daftar untuk melihat hasilnya.</span></div>'; };
       };
