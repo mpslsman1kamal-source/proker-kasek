@@ -149,7 +149,8 @@
       ['dragover', 'dragenter'].forEach(e => dz.addEventListener(e, ev => { ev.preventDefault(); dz.classList.add('on'); })); ['dragleave', 'drop'].forEach(e => dz.addEventListener(e, ev => { ev.preventDefault(); dz.classList.remove('on'); }));
       dz.addEventListener('drop', ev => { if (ev.dataTransfer.files[0]) proses(ev.dataTransfer.files[0]); });
     };
-    go = tabs(body, [['daftar', 'Daftar Indikator'], ['analisis', 'Analisis & Tren'], ['impor', 'Impor Data']], ['daftar', 'analisis', 'impor'].indexOf(mulai) > -1 ? mulai : 'daftar', (k, el) => { k === 'daftar' ? daftar(el) : k === 'analisis' ? analisis(el) : impor(el); });
+    const EX = ((window.PAGES_EXTRA || {}).rapor || []).filter(x => !x.need || x.need());      // tab tambahan (pages6.js)
+    go = tabs(body, [['daftar', 'Daftar Indikator'], ['analisis', 'Analisis & Tren'], ['impor', 'Impor Data']].concat(EX.map(x => [x.k, x.l])), ['daftar', 'analisis', 'impor'].concat(EX.map(x => x.k)).indexOf(mulai) > -1 ? mulai : 'daftar', (k, el) => { const ex = EX.find(x => x.k === k); if (ex) return ex.draw(el, X); k === 'daftar' ? daftar(el) : k === 'analisis' ? analisis(el) : impor(el); });
     if ($('#ba', v)) $('#ba', v).onclick = () => raporForm(null); if ($('#bi', v)) $('#bi', v).onclick = () => go('impor');
     X.watch('t:Rapor_Indikator', () => { const k = $('.tabs [aria-selected=true]', v).dataset.t; if (k === 'daftar' && $('#tb', v)._dt) { const dt = $('#tb', v)._dt; if (thn === 0 || thn == null) { daftar($('#tb', v)); } else dt.draw(); } else if (k === 'analisis') analisis($('#tb', v)); });
   } };

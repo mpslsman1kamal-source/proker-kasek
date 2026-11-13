@@ -116,9 +116,10 @@
       el.onclick = async (e) => { const b = e.target.closest('[data-c]'); if (!b) return; const [jn, fmt, ref] = b.dataset.c.split('|'); b.classList.add('load'); b.disabled = true; const r = await API.write('dok.cetak', { jenis: jn, format: fmt, ref }, { timeout: 60000, retry: 0 }); b.classList.remove('load'); b.disabled = false; if (!r.success) { toast(r.message, 'bad'); return; } UI.saveBlob(r.data.nama, r.data.mime, r.data.b64); toast('Dokumen siap diunduh.', 'ok'); };
     };
 
-    const DAFTAR = [['rkjm', 'RKJM'], ['rkt', 'RKT'], ['kalender', 'Kalender'], ['anggaran', 'Anggaran'], ['persetujuan', 'Persetujuan'], ['selaras', 'Keselarasan'], ['cetak', 'Cetak']];
+    const EX = ((window.PAGES_EXTRA || {}).rencana || []).filter(x => !x.need || x.need());      // tab tambahan (pages6.js)
+    const DAFTAR = [['rkjm', 'RKJM'], ['rkt', 'RKT'], ['kalender', 'Kalender'], ['anggaran', 'Anggaran'], ['persetujuan', 'Persetujuan'], ['selaras', 'Keselarasan'], ['cetak', 'Cetak']].concat(EX.map(x => [x.k, x.l]));
     const sub = DAFTAR.map(x => x[0]).indexOf(parts[0]) > -1 ? parts[0] : 'rkjm';
-    const draw = (k, el) => { ({ rkjm, rkt, kalender, anggaran, persetujuan, selaras: keselarasan, cetak })[k](el); };
+    const draw = (k, el) => { const ex = EX.find(x => x.k === k); if (ex) return ex.draw(el, X); ({ rkjm, rkt, kalender, anggaran, persetujuan, selaras: keselarasan, cetak })[k](el); };
     const go = tabs($('#body', v), DAFTAR, sub, draw);
     const redraw = () => { const t = $('.tabs [aria-selected=true]', v); if (t && t.dataset.t === 'persetujuan') draw('persetujuan', $('#tb', v)); };
     loadAppr();

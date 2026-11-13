@@ -117,3 +117,25 @@ details.acc{border:1px solid var(--border);border-radius:14px;background:#fff;ma
 @media print{.side,.top,.bnav,.acts,.toolbar,#toasts{display:none!important}.main{margin:0}.card{box-shadow:none}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 .tl li{padding-left:12px}
+
+/* ===== UPGRADE: cetak dari aplikasi (Rekomendasi, RKT, ARKAS) — A4 landscape + kop sekolah ===== */
+#print-area{display:none}
+@media print{
+  @page{size:A4 landscape;margin:12mm}
+  body.printing>*:not(#print-area){display:none!important}
+  body.printing #print-area{display:block!important;color:#000;font:11pt/1.35 "Plus Jakarta Sans",Arial,sans-serif}
+  #print-area .kop{text-align:center;border-bottom:2px solid #000;padding-bottom:6px;margin-bottom:10px;font-size:11pt}
+  #print-area .kop b{font-size:14pt;text-transform:uppercase}
+  #print-area h2{text-align:center;font-size:13pt;margin:6px 0 2px}
+  #print-area .sub{text-align:center;margin-bottom:10px}
+  #print-area table{width:100%;border-collapse:collapse;font-size:9.5pt}
+  #print-area th,#print-area td{border:1px solid #000;padding:3px 5px;vertical-align:top;text-align:left}
+  #print-area th{background:#e8e8e8;text-align:center}
+  #print-area td.r{text-align:right}
+  #print-area tr{break-inside:avoid}
+  #print-area tr.grup td{background:#f3f3f3}
+  #print-area .cat{margin-top:8px;font-size:9pt}
+  #print-area .ttd{margin-top:18px;display:flex;justify-content:flex-end;break-inside:avoid}
+  #print-area .ttd>div{width:260px;text-align:center}
+  #print-area .ft{margin-top:10px;font-size:8pt;color:#444}
+}
