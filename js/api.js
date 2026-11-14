@@ -48,7 +48,7 @@
     userName(id) { const u = this.users.find(x => x.id === id); return u ? u.nama : (id || '—'); },
     init(boot) {
       this.user = boot.user; this.izin = boot.izin; this.set = boot.setting || {}; this.users = boot.pengguna || []; this.dash = boot.dash || {};
-      this.t = {}; this.ver = {}; this.at = {};
+      this.t = {}; this.ver = {}; this.at = {}; this.at.__dash = Date.now();       // dashboard baru saja dibawa boot → tak perlu dash.get lagi
       Object.keys(this.izin).forEach(tb => { if (this.can(tb, 'L')) { const raw = lsGet(this.ns() + tb); if (raw) { try { const o = JSON.parse(raw); this.t[tb] = o.rows; this.ver[tb] = o.v; this.at[tb] = 0; } catch (e) { } } } });
       lsSet(this.ns() + 'dash', JSON.stringify(this.dash));
     },
@@ -63,23 +63,29 @@
       if (!this.can(tb, 'L')) return [];
       if (!force && !this.stale(tb)) return this.rows(tb);
       if (this.inflight[tb]) return this.inflight[tb];
-      this.emit('sync', 1);
+      this.sync(1);
       this.inflight[tb] = API.read('crud.list', { table: tb, v: force ? undefined : this.ver[tb] }).then(r => {
-        delete this.inflight[tb]; this.emit('sync', 0);
+        delete this.inflight[tb]; this.sync(-1);
         if (r.success) this.absorb(tb, r.data); return this.rows(tb);
       });
       return this.inflight[tb];
     },
-    /** Muat banyak tabel sekaligus dalam batch (maks 10 per permintaan). */
+    /** Penghitung permintaan berjalan → bilah sinkron tetap menyala selama masih ada yang menunggu. */
+    nsync: 0,
+    sync(d) { this.nsync = Math.max(0, this.nsync + d); this.emit('sync', this.nsync > 0 ? 1 : 0); },
+    /** Muat banyak tabel sekaligus: kelompok kecil (6 tabel) dikirim PARALEL, bukan berurutan, supaya data tiba lebih cepat. */
     async loadMany(list, force) {
-      const perlu = list.filter(tb => this.can(tb, 'L') && (force || this.stale(tb)) && !this.inflight[tb]);
-      for (let i = 0; i < perlu.length; i += 10) {
-        const grup = perlu.slice(i, i + 10); this.emit('sync', 1);
-        const p = API.batch(grup.map(tb => ({ action: 'crud.list', data: { table: tb, v: force ? undefined : this.ver[tb] } })));
-        grup.forEach((tb, k) => { this.inflight[tb] = p.then(() => this.rows(tb)); });
-        const r = await p; grup.forEach(tb => delete this.inflight[tb]); this.emit('sync', 0);
-        if (r.success) r.data.hasil.forEach((h, k) => { if (h.success) this.absorb(grup[k], h.data); });
+      const perlu = list.filter(tb => this.can(tb, 'L') && (force || this.stale(tb)) && !this.inflight[tb]), jobs = [];
+      for (let i = 0; i < perlu.length; i += 6) {
+        const grup = perlu.slice(i, i + 6); this.sync(1);
+        const job = API.batch(grup.map(tb => ({ action: 'crud.list', data: { table: tb, v: force ? undefined : this.ver[tb] } }))).then(r => {
+          grup.forEach(tb => delete this.inflight[tb]); this.sync(-1);
+          if (r.success) r.data.hasil.forEach((h, k) => { if (h.success) this.absorb(grup[k], h.data); });
+        });
+        grup.forEach(tb => { this.inflight[tb] = job.then(() => this.rows(tb)); });     // yang menunggu menerima data SESUDAH diserap
+        jobs.push(job);
       }
+      await Promise.all(jobs);
     },
     async refreshDash() { const r = await API.read('dash.get'); if (r.success) { this.dash = r.data; lsSet(this.ns() + 'dash', JSON.stringify(r.data)); this.emit('dash', r.data); } },
     invalidate(...tbs) { tbs.forEach(tb => { this.at[tb] = 0; }); },

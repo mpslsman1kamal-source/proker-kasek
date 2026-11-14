@@ -35,7 +35,7 @@
       b.classList.remove('load'); b.disabled = false;
       if (!r.success) { err.textContent = r.message; err.hidden = false; $('#lp').value = ''; $('#lp').focus(); return; }
       API.setToken(r.data.token);
-      r.data.wajib_ganti ? gantiSandiView(r.data.user, true) : start();
+      r.data.wajib_ganti ? gantiSandiView(r.data.user, true) : start(r.data.boot);   // boot ikut dalam respons login → satu putaran server lebih cepat
     };
     $('#lu').focus(); initGoogle();
   }
@@ -46,7 +46,7 @@
       google.accounts.id.initialize({ client_id: info.google_client_id, callback: async (resp) => {
         const r = await API.read('auth.google', { idToken: resp.credential }, { retry: 1 });
         if (!r.success) { const e = $('#le'); if (e) { e.textContent = r.message; e.hidden = false; } return; }
-        API.setToken(r.data.token); start();
+        API.setToken(r.data.token); start(r.data.boot);
       } });
       const el = $('#gbtn'); if (el) { google.accounts.id.renderButton(el, { theme: 'outline', size: 'large', text: 'signin_with', shape: 'pill', width: 320, locale: 'id' }); $('#gwrap').hidden = false; }
     };
@@ -140,15 +140,15 @@
   Store.on('t:Pengumuman', () => badge());
 
   /* ---------- mulai ---------- */
-  async function start() {
+  async function start(pre) {
     root().innerHTML = '<div class="main" style="margin:0;padding:40px;max-width:900px;margin:auto"><div class="sk" style="height:40px;width:50%"></div><div class="sk" style="height:140px;margin-top:20px"></div><div class="sk" style="height:140px;margin-top:14px"></div></div>';
-    const r = await API.read('boot', {}, { retry: 2 });
+    const r = pre ? { success: true, data: pre } : await API.read('boot', {}, { retry: 2 });   // pre = boot dari respons login (bila server mengirim)
     if (!r.success) { if (r.code === 'WAJIB_GANTI') return gantiSandiView({ nama: 'Pengguna' }, true); API.setToken(null); return loginView(r.offline ? r.message : (r.code === 'SESI' ? 'Sesi berakhir. Silakan masuk kembali.' : r.message)); }
     Store.init(r.data); shell();
     window.removeEventListener('hashchange', route); window.addEventListener('hashchange', route);
     if (!location.hash || location.hash === '#') location.replace('#/dashboard'); route();
     const semua = Object.keys(Store.izin).filter(t => Store.can(t, 'L') && ['Pengaturan', 'Log_Aktivitas', 'AntrianNotif', 'Pengguna'].indexOf(t) < 0);
-    setTimeout(() => Store.loadMany(semua), 250);                 // prefetch seluruh data yang boleh dibaca → pindah menu tanpa tunggu
+    Store.loadMany(semua);                                         // prefetch seluruh data yang boleh dibaca (paralel, langsung) → pindah menu tanpa tunggu
     setInterval(() => { if (document.visibilityState === 'visible' && Store.user) { Store.refreshDash(); if (PAGES[cur] && PAGES[cur].tables) Store.loadMany(PAGES[cur].tables); } }, 60000);
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && Store.user && PAGES[cur] && PAGES[cur].tables) Store.loadMany(PAGES[cur].tables); });
   }

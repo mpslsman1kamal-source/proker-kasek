@@ -82,7 +82,7 @@
     const rows = () => Store.rows('Rapor_Indikator'), tahunList = () => Array.from(new Set(rows().map(r => +r.tahun))).sort((a, b) => b - a);
     let thn = null, fk = '';
     const daftar = (el) => {
-      const ty = tahunList(); if (thn == null || (ty.length && ty.indexOf(thn) < 0 && thn !== 0)) thn = ty[0] || 0;
+      const ty = tahunList(); if (thn == null || thn === 0 || (ty.length && ty.indexOf(thn) < 0)) thn = ty[0] || 0;   // thn 0 = data belum tiba → pilih tahun terbaru begitu data masuk (dulu tetap 0 sehingga tabel kosong sampai refresh)
       el.innerHTML = '<div class="toolbar">' + UI.searchBox('Cari kode atau indikator') + '<select class="in" id="ft" style="width:auto" aria-label="Tahun">' + ty.map(t => '<option value="' + t + '"' + (t === thn ? ' selected' : '') + '>Tahun ' + t + '</option>').join('') + '</select><div class="seg" id="fk">' + [['', 'Semua'], ['merah', 'Kritis'], ['kuning', 'Perhatian'], ['hijau', 'Baik']].map(a => '<button data-k="' + a[0] + '" aria-pressed="' + (fk === a[0]) + '">' + a[1] + '</button>').join('') + '</div><span class="muted sm" id="cn"></span></div><div id="tbl"></div>';
       const dt = new DataTable($('#tbl', el), { rows: () => rows(), per: 30, sort: { k: 'kode', d: 1 }, onCount: n => { const c = $('#cn', el); if (c) c.textContent = n + ' indikator'; },
         cols: [{ k: 'kode', l: 'Kode', fmt: r => '<span class="pill biru">' + esc(r.kode) + '</span>' }, { k: 'indikator', l: 'Indikator', fmt: r => '<b>' + esc(r.indikator) + '</b><div class="xs muted">' + esc(r.standar_atau_aspek || '') + '</div>' },

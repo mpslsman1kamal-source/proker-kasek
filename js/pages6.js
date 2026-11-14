@@ -13,6 +13,17 @@
   const sekolah = () => Store.rows('Sekolah')[0] || {};
   const muatXlsx = async () => { if (window.XLSX) return; await new Promise((ok, bad) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; s.onload = ok; s.onerror = bad; document.head.appendChild(s); }); };
 
+  /* Banner dokumen Final: RKT yang sudah disahkan terkunci. Kepala Sekolah dapat "Buka revisi" (memakai alur versi baru yang sudah ada). */
+  const bannerKunci = async (el, selesai) => {
+    const r = await API.read('persetujuan.status', { jenis: 'RKT', scope: ta() }); if (!el.isConnected || !r.success || !r.data.final || $('[data-rv], .alert.lockbn', el)) return;
+    const kepsek = Store.user && Store.user.peran === 'kepsek';
+    const b = document.createElement('div'); b.className = 'alert warn lockbn'; b.style.margin = '0 0 12px';
+    b.innerHTML = ic('lock') + '<span style="flex:1">RKT TA ' + esc(ta()) + ' berstatus <b>Final (v' + r.data.versi + ')</b> dan terkunci. ' + (kepsek ? 'Untuk mengisi atau mengubah data, buka revisi — dokumen kembali ke tahap Draf dan melewati persetujuan lagi.' : 'Minta Kepala Sekolah membuka revisi bila perlu mengubah.') + '</span>' + (kepsek ? '<button class="btn sm p" data-rv>' + ic('edit_note') + 'Buka revisi</button>' : '');
+    el.insertBefore(b, el.firstChild);
+    const t = $('[data-rv]', b); if (t) t.onclick = () => UI.form({ title: 'Buka revisi RKT ' + ta(), ok: 'Buka revisi', fields: [{ k: 'alasan', l: 'Alasan revisi', t: 'area', req: 1, full: 1 }],
+      onSubmit: async (x) => { const q = await API.write('persetujuan.versiBaru', { jenis: 'RKT', scope: ta(), alasan: x.alasan }); if (q.success) { toast(q.message, 'ok'); await Store.loadMany(['Kegiatan_RKT', 'Rincian_ARKAS'], true); b.remove(); if (selesai) selesai(); } return q; } });
+  };
+
   /* ================= CETAK (tingkat 1: cetak dari aplikasi, A4 landscape + kop sekolah) ================= */
   const cetak = async (judul, subjudul, kolom, baris, opsi) => {
     opsi = opsi || {}; try { await Store.load('Sekolah'); } catch (e) { } const s = sekolah();
@@ -181,7 +192,7 @@
     const ringkas = () => { const l = keg(); return { n: l.length, ya: l.filter(k => k.butuh_biaya === 'ya').length, tdk: l.filter(k => k.butuh_biaya === 'tidak').length, blm: l.filter(k => !k.butuh_biaya).length }; };
     el.innerHTML = '<div class="toolbar">' + UI.searchBox('Cari kegiatan') + '<span class="muted sm" id="cn"></span>' + '<button class="btn" id="cx">' + ic('print') + 'Cetak</button>' + (can('Kegiatan_RKT', 'T') ? '<button class="btn p" id="nk">' + ic('add') + 'Tambah baris</button>' : '') + '</div><div id="rs"></div><div id="tbl"></div>';
     const rs = () => { const s = ringkas(); const e = $('#rs', el); if (e) e.innerHTML = '<div class="muted sm" style="margin-bottom:10px">TA ' + esc(ta()) + ' · ' + s.n + ' kegiatan · <b>' + s.ya + '</b> membutuhkan biaya (otomatis masuk Lembar Kerja ARKAS) · ' + s.tdk + ' tanpa biaya' + (s.blm ? ' · <b>' + s.blm + '</b> belum ditandai Ya/Tidak (data lama)' : '') + '</div>'; };
-    rs();
+    rs(); bannerKunci(el);
     const dt = new DataTable($('#tbl', el), { rows: keg, per: 30, sort: { k: 'kegiatan_benahi', d: 1 }, onCount: n => { const c = $('#cn', el); if (c) c.textContent = n + ' baris'; },
       cols: [{ k: 'masalah_id', l: 'Identifikasi (indikator prioritas)', val: r => (msl(r.masalah_id) || {}).masalah || '', fmt: r => esc((msl(r.masalah_id) || {}).masalah || r.indikator || '—') },
         { k: 'akar_masalah', l: 'Akar masalah', fmt: r => esc(r.akar_masalah || '—') }, { k: 'kegiatan_benahi', l: 'Kegiatan benahi', val: r => r.kegiatan_benahi || r.kegiatan, fmt: r => '<b>' + esc(r.kegiatan_benahi || r.kegiatan) + '</b>' },
@@ -230,7 +241,8 @@
       { k: 'tahun_ajaran', l: 'Tahun ajaran', t: 'text', req: 1 }, { k: 'komponen', l: 'Komponen / sumber dana', t: 'text', req: 1, ph: 'mis. BOSP Reguler' }, { k: 'pagu', l: 'Pagu (Rp)', t: 'num', min: 0, step: 1000, req: 1 }, { k: 'catatan', l: 'Catatan', t: 'text', full: 1 }],
       onSubmit: async (x) => { const s = await Store.save('Pagu_Anggaran', Object.assign({}, r || {}, x, { pagu: +x.pagu || 0 })); if (s.success) { toast('Pagu tersimpan.', 'ok'); segarkan(); } return s; } });
 
-    const gambar = () => {
+    const gambar = () => { gambar0(); bannerKunci(el, gambar); };
+    const gambar0 = () => {
       const kg = kegYa(), S = sm; let ring = '';
       if (S) {
         const stat = S.status === 'melebihi' ? '<div class="alert bad" style="margin:0 0 12px">' + ic('error') + '<span><b>Total anggaran melebihi pagu</b> sebesar <b>' + rp(Math.abs(S.selisih)) + '</b>. Kurangi rincian atau perbarui pagu sebelum diajukan.</span></div>' : S.status === 'aman' ? '<div class="alert ok" style="margin:0 0 12px">' + ic('check_circle') + '<span>Total anggaran dalam batas pagu. Sisa <b>' + rp(S.selisih) + '</b>.</span></div>' : (can('Pagu_Anggaran', 'L') ? '<div class="alert warn" style="margin:0 0 12px">' + ic('info') + '<span>Pagu belum diisi untuk TA ' + esc(ta()) + '.' + (can('Pagu_Anggaran', 'T') ? ' Klik <b>Atur pagu</b>.' : '') + '</span></div>' : '');
@@ -242,7 +254,8 @@
         return '<div class="card" style="margin-bottom:14px"><div class="row between wrap"><div><b>' + esc(k.kegiatan_benahi || k.kegiatan) + '</b>' + (ms ? '<div class="xs muted">' + esc(ms.masalah) + '</div>' : '') + (k.penjelasan ? '<div class="sm" style="margin-top:4px">' + esc(k.penjelasan) + '</div>' : '') + '</div><div class="row"><b>' + rp(tot) + '</b>' + (can('Rincian_ARKAS', 'T') ? '<button class="btn sm p" data-add="' + esc(k.id) + '">' + ic('add') + 'Tambah rincian</button>' : '') + '</div></div>' +
           (rs.length ? '<div class="tw" style="margin-top:10px"><table class="tbl rsp"><thead><tr><th>Kegiatan ARKAS</th><th>Uraian</th><th>Bulan</th><th>Jumlah</th><th>Satuan</th><th>Harga satuan</th><th>Total</th><th></th></tr></thead><tbody>' + rs.map(r => '<tr style="' + (r._pending ? 'opacity:.55' : '') + '"><td data-l="Kegiatan ARKAS">' + esc(r.kegiatan_arkas || '') + '</td><td data-l="Uraian">' + esc(r.uraian) + '</td><td data-l="Bulan">' + esc(r.bulan ? BLN[r.bulan - 1] : '') + '</td><td data-l="Jumlah">' + esc(r.jumlah) + '</td><td data-l="Satuan">' + esc(r.satuan || '') + '</td><td data-l="Harga">' + rp(r.harga_satuan) + '</td><td data-l="Total"><b>' + rp(r.total) + '</b></td><td>' + (can('Rincian_ARKAS', 'U') ? '<button class="iconbtn" data-ed="' + esc(r.id) + '" aria-label="Ubah">' + ic('edit') + '</button>' : '') + (can('Rincian_ARKAS', 'H') ? '<button class="iconbtn" data-del="' + esc(r.id) + '" aria-label="Hapus">' + ic('delete') + '</button>' : '') + '</td></tr>').join('') + '</tbody></table></div>' : '<div class="muted sm" style="margin-top:8px">Belum ada rincian anggaran.</div>') + '</div>'; }).join('') :
         '<div class="card">' + UI.emptyBox('payments', 'Belum ada kegiatan yang membutuhkan biaya', 'Di Lembar Kerja RKT, tandai kegiatan dengan "Butuh biaya: Ya" — otomatis muncul di sini.') + '</div>';
-      el.innerHTML = '<div class="toolbar"><span class="muted sm">TA ' + esc(ta()) + '</span><span style="flex:1"></span><button class="btn" id="cx">' + ic('print') + 'Cetak</button></div>' + ring + blok;
+      const lama = S && S.belum_dirinci_total > 0 ? '<div class="alert warn" style="margin:0 0 12px">' + ic('info') + '<span><b>' + S.belum_dirinci.length + ' kegiatan</b> masih memakai anggaran lama sebesar <b>' + rp(S.belum_dirinci_total) + '</b> yang belum dirinci (tidak masuk total rincian/pagu): ' + S.belum_dirinci.slice(0, 4).map(x => esc(x.kegiatan) + ' (' + rp(x.anggaran) + (x.butuh_biaya === 'ya' ? '' : ', belum ditandai Butuh biaya = Ya') + ')').join('; ') + (S.belum_dirinci.length > 4 ? ' …' : '') + '. Tambahkan rincian ARKAS agar total sesuai.</span></div>' : '';
+      el.innerHTML = '<div class="toolbar"><span class="muted sm">TA ' + esc(ta()) + '</span><span style="flex:1"></span><button class="btn" id="cx">' + ic('print') + 'Cetak</button></div>' + lama + ring + blok;
       $$('[data-add]', el).forEach(b => b.onclick = () => formRincian(Store.byId('Kegiatan_RKT', b.dataset.add)));
       $$('[data-ed]', el).forEach(b => b.onclick = () => { const r = Store.byId('Rincian_ARKAS', b.dataset.ed); formRincian(Store.byId('Kegiatan_RKT', r.kegiatan_id), r); });
       $$('[data-del]', el).forEach(b => b.onclick = async () => { const r = Store.byId('Rincian_ARKAS', b.dataset.del); if (!await UI.confirm({ text: 'Hapus rincian "' + r.uraian + '"?', danger: 1, ok: 'Hapus' })) return; const x = await Store.remove('Rincian_ARKAS', r.id); toast(x.success ? 'Rincian dihapus.' : x.message, x.success ? 'ok' : 'bad'); if (x.success) segarkan(); });
